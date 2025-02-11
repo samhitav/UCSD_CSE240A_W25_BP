@@ -12,9 +12,9 @@
 //
 // TODO:Student Information
 //
-const char *studentName = "TODO";
-const char *studentID = "TODO";
-const char *email = "TODO";
+const char *studentName = "Samhita Varambally";
+const char *studentID = "A69036092";
+const char *email = "samhitav@google.com";
 
 //------------------------------------//
 //      Predictor Configuration       //
@@ -40,6 +40,16 @@ int verbose;
 uint8_t *bht_gshare;
 uint64_t ghistory;
 
+//21264
+uint8_t *local_bht;
+uint64_t *local_pht;
+int pcBits = 12;
+int lhistoryBits = 15;
+uint64_t pathhistory;
+int pathhistoryBits = 15;
+uint8_t *global_bht;
+uint8_t *choice_bht;
+
 //------------------------------------//
 //        Predictor Functions         //
 //------------------------------------//
@@ -58,6 +68,36 @@ void init_gshare()
     bht_gshare[i] = WN;
   }
   ghistory = 0;
+}
+
+void init_alpha21264()
+{
+    int lpht_entries = 1 << pcBits;
+    local_pht = (uint64_t *)malloc(lpht_entries * sizeof(uint64_t));
+    int lbht_entries = 1 << lhistoryBits;
+    local_bht = (uint8_t *)malloc(lbht_entries * sizeof(uint8_t));
+    
+    int gbht_entries = 1 << pathhistoryBits;
+    global_bht = (uint8_t *)malloc(gbht_entries * sizeof(uint8_t));
+    int cbht_entries = 1 << pathhistoryBits;
+    choice_bht = (uint8_t *)malloc(cbht_entries * sizeof(uint8_t));
+
+    int i;
+    for (i = 0; i < lpht_entries; i++) 
+    {
+        local_pht[i] = 0;
+    }
+    for (i = 0; i < lbht_entries; i++) 
+    {
+        local_bht[i] = WN;
+    }
+    for (i = 0; i < gbht_entries; i++) 
+    {
+        global_bht[i] = WN;
+        choice_bht[i] = WN;
+    }
+    pathhistory = 0;
+
 }
 
 uint8_t gshare_predict(uint32_t pc)
@@ -81,6 +121,64 @@ uint8_t gshare_predict(uint32_t pc)
     printf("Warning: Undefined state of entry in GSHARE BHT!\n");
     return NOTTAKEN;
   }
+}
+
+uint8_t alpha21264_local_predict(uint8_t bht)
+{
+  switch (bht)
+  {
+  case WN:
+    return NOTTAKEN;
+  case SN:
+    return NOTTAKEN;
+  case WT:
+    return TAKEN;
+  case ST:
+    return TAKEN;
+  default:
+    printf("Warning: Undefined state of entry in Alpha 21264 Local BHT!\n");
+    return NOTTAKEN;
+  }
+}
+
+uint8_t alpha21264_global_predict(uint8_t bht)
+{
+  switch (bht)
+  {
+  case WN:
+    return NOTTAKEN;
+  case SN:
+    return NOTTAKEN;
+  case WT:
+    return TAKEN;
+  case ST:
+    return TAKEN;
+  default:
+    printf("Warning: Undefined state of entry in Alpha 21264 Global BHT!\n");
+    return NOTTAKEN;
+  }
+}
+
+uint8_t alpha21264_predict(uint32_t pc)
+{
+    uint32_t pc_lower_bits = pc & ((1 << pcBits) - 1);
+    uint32_t lpht_lower_bits = local_pht[pc_lower_bits] & ((1 << lhistoryBits) - 1);
+
+    uint32_t phistory_lower_bits = pathhistory & ((1 << pathhistoryBits) - 1);
+    switch (choice_bht[phistory_lower_bits])
+    {
+    case WN:
+        return alpha21264_local_predict(local_bht[lpht_lower_bits]);        
+    case SN:
+        return alpha21264_local_predict(local_bht[lpht_lower_bits]);        
+    case WT:
+        return alpha21264_global_predict(global_bht[phistory_lower_bits]);        
+    case ST:
+        return alpha21264_global_predict(global_bht[phistory_lower_bits]);        
+    default:
+      printf("Warning: Undefined state of entry in Alpha 21264 Choice BHT!\n");
+      return alpha21264_local_predict(local_bht[lpht_lower_bits]);        
+    }
 }
 
 void train_gshare(uint32_t pc, uint8_t outcome)
@@ -115,6 +213,79 @@ void train_gshare(uint32_t pc, uint8_t outcome)
   ghistory = ((ghistory << 1) | outcome);
 }
 
+void train_alpha21264(uint32_t pc, uint8_t outcome)
+{
+  uint32_t pc_lower_bits = pc & ((1 << pcBits) - 1);
+  uint32_t lpht_lower_bits = local_pht[pc_lower_bits] & ((1 << lhistoryBits) - 1);
+
+  uint32_t phistory_lower_bits = pathhistory & ((1 << pathhistoryBits) - 1);
+
+  //Update choice history based on outcome
+  if(global_bht[phistory_lower_bits] != local_bht[lpht_lower_bits]) {
+    switch (choice_bht[phistory_lower_bits])
+    {
+    case WN:
+        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? WT : SN;
+        break;
+    case SN:
+        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? WN : SN;
+        break;
+    case WT:
+        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? ST : WN;
+        break;
+    case ST:
+        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? ST : WT;
+        break;
+    default:
+      printf("Warning: Undefined state of entry in Alpha 21264 Choice BHT!\n");
+      break;
+    }
+  }
+
+  // Update global history based on outcome
+  switch (global_bht[phistory_lower_bits])
+  {
+    case WN:
+        global_bht[phistory_lower_bits] = (outcome == TAKEN) ? WT : SN;
+        break;
+    case SN:
+        global_bht[phistory_lower_bits] = (outcome == TAKEN) ? WN : SN;
+        break;
+    case WT:
+        global_bht[phistory_lower_bits] = (outcome == TAKEN) ? ST : WN;
+        break;
+    case ST:
+        global_bht[phistory_lower_bits] = (outcome == TAKEN) ? ST : WT;
+        break;
+    default:
+      printf("Warning: Undefined state of entry in Alpha 21264 Global BHT!\n");
+      return;
+  }
+
+  // Update local history based on outcome
+  switch (local_bht[lpht_lower_bits])
+  {
+    case WN:
+        local_bht[lpht_lower_bits] = (outcome == TAKEN) ? WT : SN;
+        break;
+    case SN:
+        local_bht[lpht_lower_bits] = (outcome == TAKEN) ? WN : SN;
+        break;
+    case WT:
+        local_bht[lpht_lower_bits] = (outcome == TAKEN) ? ST : WN;
+        break;
+    case ST:
+        local_bht[lpht_lower_bits] = (outcome == TAKEN) ? ST : WT;
+        break;
+    default:
+      printf("Warning: Undefined state of entry in Alpha 21264 Local BHT!\n");
+      return;
+  }
+
+  pathhistory = ((pathhistory << 1) | outcome);
+  local_pht[pc_lower_bits] = ((local_pht[pc_lower_bits] << 1) | outcome);
+}
+
 void cleanup_gshare()
 {
   free(bht_gshare);
@@ -130,6 +301,7 @@ void init_predictor()
     init_gshare();
     break;
   case TOURNAMENT:
+    init_alpha21264();
     break;
   case CUSTOM:
     break;
@@ -153,7 +325,7 @@ uint32_t make_prediction(uint32_t pc, uint32_t target, uint32_t direct)
   case GSHARE:
     return gshare_predict(pc);
   case TOURNAMENT:
-    return NOTTAKEN;
+    return alpha21264_predict(pc);
   case CUSTOM:
     return NOTTAKEN;
   default:
@@ -180,7 +352,7 @@ void train_predictor(uint32_t pc, uint32_t target, uint32_t outcome, uint32_t co
     case GSHARE:
       return train_gshare(pc, outcome);
     case TOURNAMENT:
-      return;
+      return train_alpha21264(pc, outcome);
     case CUSTOM:
       return;
     default:
