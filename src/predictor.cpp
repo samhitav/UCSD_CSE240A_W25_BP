@@ -304,6 +304,7 @@ void init_predictor()
     init_alpha21264();
     break;
   case CUSTOM:
+    init_alpha21264();
     break;
   default:
     break;
@@ -327,7 +328,7 @@ uint32_t make_prediction(uint32_t pc, uint32_t target, uint32_t direct)
   case TOURNAMENT:
     return alpha21264_predict(pc);
   case CUSTOM:
-    return NOTTAKEN;
+    return alpha21264_predict(pc);
   default:
     break;
   }
@@ -354,7 +355,7 @@ void train_predictor(uint32_t pc, uint32_t target, uint32_t outcome, uint32_t co
     case TOURNAMENT:
       return train_alpha21264(pc, outcome);
     case CUSTOM:
-      return;
+      return train_alpha21264(pc, outcome);
     default:
       break;
     }
