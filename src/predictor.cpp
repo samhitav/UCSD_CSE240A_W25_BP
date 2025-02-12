@@ -51,6 +51,11 @@ uint8_t *global_bht;
 uint8_t *choice_bht;
 int choicehistoryBits = 12;
 
+int *perceptron_table;
+uint64_t perceptron_ghistory;
+int perceptron_ghistoryBits = 62;
+int perceptron_pcBits = 10;
+int perceptron_threshold = 8;
 //------------------------------------//
 //        Predictor Functions         //
 //------------------------------------//
@@ -69,6 +74,79 @@ void init_gshare()
     bht_gshare[i] = WN;
   }
   ghistory = 0;
+}
+
+void init_perceptron()
+{
+    uint32_t perceptron_entries = 1 << perceptron_pcBits;
+    perceptron_table = (int *)malloc(perceptron_entries * perceptron_ghistoryBits * sizeof(int));
+    int i = 0;
+    int j = 0;
+    
+    perceptron_ghistory = 0;
+    
+    for (i = 0; i < perceptron_entries;  i++)
+    {
+        for (j = 0; j < perceptron_ghistoryBits; j++) 
+        {
+            perceptron_table[i*perceptron_ghistoryBits + j] = 0;
+        }
+    }
+
+}
+
+uint8_t perceptron_predict(uint32_t pc)
+{
+    int i;
+    int y = 0;
+    int perceptron_entries = 1 << perceptron_pcBits;
+    int pc_lower_bits = pc & (perceptron_entries - 1);
+
+    for(i=0; i<perceptron_ghistoryBits; i++) 
+    {
+        if(((perceptron_ghistory >> i) & 1) == 0) {
+          y = y - perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i];
+        } else {
+          y = y + perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i];
+        }
+    }
+
+    if(y>0){
+        return TAKEN;
+    } else {
+        return NOTTAKEN;
+    };
+}
+
+void train_perceptron(uint32_t pc, uint8_t outcome)
+{
+    int i;
+    int y = 0;
+    int perceptron_entries = 1 << perceptron_pcBits;
+    int pc_lower_bits = pc & (perceptron_entries - 1);
+
+    for(i=0; i<perceptron_ghistoryBits; i++) 
+    {
+        if(((perceptron_ghistory >> i) & 1) == 0) {
+          y = y - perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i];
+        } else {
+          y = y + perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i];
+        }
+    }
+
+      for(i=0; i<perceptron_ghistoryBits; i++) 
+      {
+        if((perceptron_predict(pc) != outcome))
+        {
+          perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i] = perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i] - 1;
+        } else {
+            if(perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i] < perceptron_threshold) {
+            perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i] = perceptron_table[pc_lower_bits*perceptron_ghistoryBits + i] + 1;
+            }
+        }
+      }
+
+    perceptron_ghistory = ((perceptron_ghistory << 1) | outcome);
 }
 
 void init_alpha21264()
