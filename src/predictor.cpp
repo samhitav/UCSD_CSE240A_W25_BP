@@ -43,12 +43,13 @@ uint64_t ghistory;
 //21264
 uint8_t *local_bht;
 uint64_t *local_pht;
-int pcBits = 12;
+int pcBits = 11;
 int lhistoryBits = 15;
 uint64_t pathhistory;
-int pathhistoryBits = 15;
+int pathhistoryBits = 16;
 uint8_t *global_bht;
 uint8_t *choice_bht;
+int choicehistoryBits = 12;
 
 //------------------------------------//
 //        Predictor Functions         //
@@ -79,7 +80,7 @@ void init_alpha21264()
     
     int gbht_entries = 1 << pathhistoryBits;
     global_bht = (uint8_t *)malloc(gbht_entries * sizeof(uint8_t));
-    int cbht_entries = 1 << pathhistoryBits;
+    int cbht_entries = 1 << choicehistoryBits;
     choice_bht = (uint8_t *)malloc(cbht_entries * sizeof(uint8_t));
 
     int i;
@@ -94,7 +95,10 @@ void init_alpha21264()
     for (i = 0; i < gbht_entries; i++) 
     {
         global_bht[i] = WN;
-        choice_bht[i] = WN;
+    }
+    for (i = 0; i < cbht_entries; i++) 
+    {
+        choice_bht[i] = WT;
     }
     pathhistory = 0;
 
@@ -164,8 +168,9 @@ uint8_t alpha21264_predict(uint32_t pc)
     uint32_t pc_lower_bits = pc & ((1 << pcBits) - 1);
     uint32_t lpht_lower_bits = local_pht[pc_lower_bits] & ((1 << lhistoryBits) - 1);
 
-    uint32_t phistory_lower_bits = pathhistory & ((1 << pathhistoryBits) - 1);
-    switch (choice_bht[phistory_lower_bits])
+    uint32_t phistory_lower_bits = (pathhistory^pc) & ((1 << pathhistoryBits) - 1);
+    uint32_t chistory_lower_bits = (pathhistory^pc) & ((1 << choicehistoryBits) - 1);
+    switch (choice_bht[chistory_lower_bits])
     {
     case WN:
         return alpha21264_local_predict(local_bht[lpht_lower_bits]);        
@@ -218,23 +223,24 @@ void train_alpha21264(uint32_t pc, uint8_t outcome)
   uint32_t pc_lower_bits = pc & ((1 << pcBits) - 1);
   uint32_t lpht_lower_bits = local_pht[pc_lower_bits] & ((1 << lhistoryBits) - 1);
 
-  uint32_t phistory_lower_bits = pathhistory & ((1 << pathhistoryBits) - 1);
+  uint32_t phistory_lower_bits = (pathhistory ^ pc) & ((1 << pathhistoryBits) - 1);
+  uint32_t chistory_lower_bits = (pathhistory ^ pc) & ((1 << choicehistoryBits) - 1);
 
   //Update choice history based on outcome
-  if(global_bht[phistory_lower_bits] != local_bht[lpht_lower_bits]) {
-    switch (choice_bht[phistory_lower_bits])
+  if(alpha21264_global_predict(global_bht[phistory_lower_bits]) != alpha21264_local_predict(local_bht[lpht_lower_bits])) {
+    switch (choice_bht[chistory_lower_bits])
     {
     case WN:
-        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? WT : SN;
+        choice_bht[chistory_lower_bits] = (alpha21264_predict(pc) == outcome) ? SN : WT;
         break;
     case SN:
-        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? WN : SN;
+        choice_bht[chistory_lower_bits] = (alpha21264_predict(pc) == outcome) ? SN : WN;
         break;
     case WT:
-        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? ST : WN;
+        choice_bht[chistory_lower_bits] = (alpha21264_predict(pc) == outcome) ? ST : WN;
         break;
     case ST:
-        choice_bht[phistory_lower_bits] = (outcome == TAKEN) ? ST : WT;
+        choice_bht[chistory_lower_bits] = (alpha21264_predict(pc) == outcome) ? ST : WT;
         break;
     default:
       printf("Warning: Undefined state of entry in Alpha 21264 Choice BHT!\n");
@@ -355,7 +361,7 @@ void train_predictor(uint32_t pc, uint32_t target, uint32_t outcome, uint32_t co
     case TOURNAMENT:
       return train_alpha21264(pc, outcome);
     case CUSTOM:
-      return train_alpha21264(pc, outcome);
+      return train_alpha21264(pc, outcome);;
     default:
       break;
     }
